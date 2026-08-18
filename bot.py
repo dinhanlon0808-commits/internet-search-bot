@@ -24,7 +24,7 @@ from telegram.ext import (
 # THAY 2 GIÁ TRỊ NÀY BẰNG KEY MỚI CỦA BẠN
 BOT_TOKEN = "8747823218:AAE5clUs5rSf-bF_MTQkxlnFiWk3LUUS8AY"
 
-TAVILY_API_KEY = "0c1395317ffa5ae9665f09caab089985a66ec1a599c4811f7b55f5429453af95"
+TAVILY_API_KEY = "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"
 
 
 # =========================================================
