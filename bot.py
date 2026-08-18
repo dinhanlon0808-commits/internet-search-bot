@@ -1,9 +1,13 @@
-import requests
-import logging
+```python
 import html
-import time
+import logging
+import requests
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -17,9 +21,11 @@ from telegram.ext import (
 # 🔑 API CONFIG
 # =========================================================
 
+# THAY 2 GIÁ TRỊ NÀY BẰNG KEY MỚI CỦA BẠN
 BOT_TOKEN = "8747823218:AAE5clUs5rSf-bF_MTQkxlnFiWk3LUUS8AY"
 
 TAVILY_API_KEY = "0c1395317ffa5ae9665f09caab089985a66ec1a599c4811f7b55f5429453af95"
+
 
 # =========================================================
 # ⚙️ SETTINGS
@@ -29,14 +35,16 @@ TAVILY_URL = "https://api.tavily.com/search"
 
 MAX_RESULTS = 10
 
+REQUEST_TIMEOUT = 60
+
 
 # =========================================================
-# LOG
+# 📝 LOGGING
 # =========================================================
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,26 +54,35 @@ logger = logging.getLogger(__name__)
 # 🌐 TAVILY SEARCH
 # =========================================================
 
-def search_internet(query):
+def search_internet(query: str):
 
     payload = {
         "api_key": TAVILY_API_KEY,
         "query": query,
-        "search_depth": "advanced",
+        "search_depth": "basic",
         "topic": "general",
         "max_results": MAX_RESULTS,
         "include_answer": False,
         "include_raw_content": False,
-        "include_images": False
+        "include_images": False,
     }
 
     response = requests.post(
         TAVILY_URL,
         json=payload,
-        timeout=60
+        timeout=REQUEST_TIMEOUT,
     )
 
-    response.raise_for_status()
+    # In lỗi API ra Railway Logs
+    if not response.ok:
+
+        print("========================================")
+        print("TAVILY API ERROR")
+        print("STATUS:", response.status_code)
+        print("RESPONSE:", response.text)
+        print("========================================")
+
+        response.raise_for_status()
 
     return response.json()
 
@@ -74,69 +91,85 @@ def search_internet(query):
 # 📄 FORMAT RESULTS
 # =========================================================
 
-def format_results(query, data):
+def format_results(query: str, data: dict):
 
     results = data.get("results", [])
 
     if not results:
-        return (
+
+        text = (
             "🔎 <b>KẾT QUẢ TÌM KIẾM</b>\n\n"
-            f"🔍 Từ khóa: <code>{html.escape(query)}</code>\n\n"
+            f"🔍 <b>Từ khóa:</b> "
+            f"{html.escape(query)}\n\n"
             "❌ Không tìm thấy kết quả."
-        ), None
+        )
+
+        return text, None
 
     text = (
         "🔎 <b>KẾT QUẢ TÌM KIẾM INTERNET</b>\n\n"
-        f"🔍 <b>Từ khóa:</b> {html.escape(query)}\n"
-        f"📊 <b>Số kết quả:</b> {len(results)}\n\n"
+        f"🔍 <b>Từ khóa:</b> "
+        f"{html.escape(query)}\n"
+        f"📊 <b>Số kết quả:</b> "
+        f"{len(results)}\n\n"
     )
 
     buttons = []
 
-    for i, item in enumerate(results, 1):
+    for index, item in enumerate(results, start=1):
 
         title = item.get(
             "title",
-            "Không có tiêu đề"
+            "Không có tiêu đề",
         )
 
         url = item.get(
             "url",
-            ""
+            "",
         )
 
         content = item.get(
             "content",
-            ""
+            "",
         )
 
-        # Làm sạch nội dung
+        # Làm sạch mô tả
+        content = str(content)
         content = content.replace(
             "\n",
-            " "
+            " ",
         ).strip()
 
         # Giới hạn mô tả
-        if len(content) > 400:
-            content = content[:400] + "..."
+        if len(content) > 300:
+            content = content[:300] + "..."
 
         text += (
-            f"<b>{i}. {html.escape(title)}</b>\n"
+            f"<b>{index}. "
+            f"{html.escape(str(title))}</b>\n"
             f"{html.escape(content)}\n\n"
         )
 
         if url:
 
-            buttons.append([
-                InlineKeyboardButton(
-                    f"🌐 MỞ KẾT QUẢ {i}",
-                    url=url
-                )
-            ])
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"🌐 MỞ KẾT QUẢ {index}",
+                        url=url,
+                    )
+                ]
+            )
 
-    # Telegram giới hạn độ dài tin nhắn
-    if len(text) > 4000:
-        text = text[:3950] + "\n\n..."
+    # Telegram giới hạn khoảng 4096 ký tự
+    if len(text) > 3900:
+
+        text = text[:3850]
+
+        text += (
+            "\n\n"
+            "⚠️ Nội dung đã được rút gọn."
+        )
 
     keyboard = None
 
@@ -149,12 +182,12 @@ def format_results(query, data):
 
 
 # =========================================================
-# 🚀 START
+# 🚀 /START
 # =========================================================
 
 async def start(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     message = """
@@ -162,41 +195,41 @@ async def start(
 
 ━━━━━━━━━━━━━━━━━━
 
-🔎 Tôi có thể tìm kiếm thông tin trên Internet và gửi các đường link liên quan cho bạn.
+🔎 Tôi có thể tìm kiếm thông tin trên Internet và gửi các đường link liên quan.
 
 <b>Cách sử dụng:</b>
 
-/search laptop gaming
+<code>/search laptop gaming</code>
 
-/search việc làm online
+<code>/search việc làm online</code>
 
-/search giá vàng hôm nay
+<code>/search giá vàng hôm nay</code>
 
-Hoặc chỉ cần gửi câu hỏi trực tiếp.
+Hoặc chỉ cần gửi câu hỏi trực tiếp cho bot.
 
 ━━━━━━━━━━━━━━━━━━
 
-🌐 <b>Search Engine:</b> Tavily
-⚡ <b>Bot:</b> Telegram
+🌐 Search: Tavily
+⚡ Telegram Bot
 """
 
     await update.message.reply_text(
         message,
-        parse_mode=ParseMode.HTML
+        parse_mode=ParseMode.HTML,
     )
 
 
 # =========================================================
-# ❓ HELP
+# ❓ /HELP
 # =========================================================
 
 async def help_command(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     message = """
-📚 <b>HƯỚNG DẪN</b>
+📚 <b>HƯỚNG DẪN SỬ DỤNG</b>
 
 🔎 Tìm kiếm:
 
@@ -210,12 +243,12 @@ Ví dụ:
 
 <code>/search việc làm online tại nhà</code>
 
-Hoặc gửi câu hỏi trực tiếp cho bot.
+Bạn cũng có thể gửi câu hỏi trực tiếp.
 """
 
     await update.message.reply_text(
         message,
-        parse_mode=ParseMode.HTML
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -225,7 +258,7 @@ Hoặc gửi câu hỏi trực tiếp cho bot.
 
 async def search_command(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     if not context.args:
@@ -234,7 +267,7 @@ async def search_command(
             "❌ Bạn chưa nhập từ khóa.\n\n"
             "Ví dụ:\n"
             "<code>/search laptop gaming</code>",
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
         )
 
         return
@@ -245,17 +278,17 @@ async def search_command(
 
     await do_search(
         update,
-        query
+        query,
     )
 
 
 # =========================================================
-# 💬 DIRECT MESSAGE
+# 💬 MESSAGE
 # =========================================================
 
 async def message_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     if not update.message:
@@ -271,7 +304,7 @@ async def message_handler(
 
     await do_search(
         update,
-        query
+        query,
     )
 
 
@@ -281,83 +314,171 @@ async def message_handler(
 
 async def do_search(
     update: Update,
-    query
+    query: str,
 ):
 
     loading = await update.message.reply_text(
         "🔎 <b>Đang tìm kiếm Internet...</b>\n\n"
         "⏳ Đang thu thập kết quả...",
-        parse_mode=ParseMode.HTML
+        parse_mode=ParseMode.HTML,
     )
 
     try:
 
         logger.info(
             "Searching: %s",
-            query
+            query,
         )
 
         data = search_internet(
-            query
+            query,
         )
 
         text, keyboard = format_results(
             query,
-            data
+            data,
         )
 
         await loading.edit_text(
             text,
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
-            disable_web_page_preview=True
+            disable_web_page_preview=True,
         )
+
+    # -----------------------------------------------------
+    # TIMEOUT
+    # -----------------------------------------------------
 
     except requests.exceptions.Timeout:
 
         await loading.edit_text(
-            "⏰ API tìm kiếm phản hồi quá lâu.\n\n"
-            "Hãy thử lại sau."
+            "⏰ <b>Tìm kiếm bị timeout.</b>\n\n"
+            "Máy chủ tìm kiếm phản hồi quá lâu.\n"
+            "Hãy thử lại.",
+            parse_mode=ParseMode.HTML,
         )
 
-    except requests.exceptions.HTTPError as e:
+    # -----------------------------------------------------
+    # CONNECTION
+    # -----------------------------------------------------
 
-        logger.error(
-            "Tavily HTTP error: %s",
-            e
-        )
+    except requests.exceptions.ConnectionError:
 
         await loading.edit_text(
-            "❌ <b>Tavily API bị lỗi.</b>\n\n"
-            "Kiểm tra lại API Key của bạn.",
-            parse_mode=ParseMode.HTML
+            "🌐 <b>Không kết nối được Tavily.</b>\n\n"
+            "Kiểm tra kết nối Internet/API.",
+            parse_mode=ParseMode.HTML,
         )
 
-    except Exception as e:
+    # -----------------------------------------------------
+    # HTTP ERROR
+    # -----------------------------------------------------
+
+    except requests.exceptions.HTTPError as error:
+
+        response = error.response
+
+        if response is not None:
+
+            status = response.status_code
+
+            try:
+                detail = response.text
+            except Exception:
+                detail = str(error)
+
+        else:
+
+            status = "UNKNOWN"
+            detail = str(error)
+
+        logger.error(
+            "Tavily HTTP %s: %s",
+            status,
+            detail,
+        )
+
+        # Các lỗi phổ biến
+        if status == 401:
+
+            message = (
+                "🔑 <b>Tavily API Key không hợp lệ.</b>\n\n"
+                "HTTP 401\n\n"
+                "Hãy tạo API key Tavily mới."
+            )
+
+        elif status == 403:
+
+            message = (
+                "🚫 <b>Tavily từ chối yêu cầu.</b>\n\n"
+                "HTTP 403\n\n"
+                "Kiểm tra quyền truy cập/API key."
+            )
+
+        elif status == 429:
+
+            message = (
+                "⏳ <b>Tavily đang giới hạn request.</b>\n\n"
+                "HTTP 429\n\n"
+                "Có thể API đã hết quota hoặc "
+                "gửi quá nhiều yêu cầu."
+            )
+
+        elif status == 400:
+
+            message = (
+                "⚠️ <b>Tavily nhận request không hợp lệ.</b>\n\n"
+                "HTTP 400\n\n"
+                f"<code>{html.escape(detail[:1000])}</code>"
+            )
+
+        else:
+
+            message = (
+                "❌ <b>Tavily API lỗi.</b>\n\n"
+                f"HTTP: <code>{status}</code>\n\n"
+                f"<code>"
+                f"{html.escape(detail[:1000])}"
+                f"</code>"
+            )
+
+        await loading.edit_text(
+            message,
+            parse_mode=ParseMode.HTML,
+        )
+
+    # -----------------------------------------------------
+    # OTHER ERROR
+    # -----------------------------------------------------
+
+    except Exception as error:
 
         logger.exception(
-            "Search error"
+            "Search error",
         )
 
         await loading.edit_text(
             "❌ <b>Bot gặp lỗi.</b>\n\n"
-            f"<code>{html.escape(str(e))}</code>",
-            parse_mode=ParseMode.HTML
+            f"<code>"
+            f"{html.escape(str(error))}"
+            f"</code>",
+            parse_mode=ParseMode.HTML,
         )
 
 
 # =========================================================
-# ❌ ERROR HANDLER
+# ❌ TELEGRAM ERROR HANDLER
 # =========================================================
 
 async def error_handler(
     update: object,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     logger.error(
         "Telegram error: %s",
-        context.error
+        context.error,
     )
 
 
@@ -367,21 +488,24 @@ async def error_handler(
 
 def main():
 
-    # Kiểm tra API
+    # Kiểm tra Telegram Token
     if (
-        BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN"
-        or not BOT_TOKEN.strip()
+        not BOT_TOKEN
+        or BOT_TOKEN == "YOUR_NEW_TELEGRAM_BOT_TOKEN"
     ):
+
         raise RuntimeError(
-            "❌ Chưa nhập TELEGRAM BOT TOKEN"
+            "❌ Chưa cấu hình Telegram Bot Token."
         )
 
+    # Kiểm tra Tavily API
     if (
-        TAVILY_API_KEY == "YOUR_TAVILY_API_KEY"
-        or not TAVILY_API_KEY.strip()
+        not TAVILY_API_KEY
+        or TAVILY_API_KEY == "YOUR_NEW_TAVILY_API_KEY"
     ):
+
         raise RuntimeError(
-            "❌ Chưa nhập TAVILY API KEY"
+            "❌ Chưa cấu hình Tavily API Key."
         )
 
     print(
@@ -404,7 +528,6 @@ def main():
         "========================================"
     )
 
-    # Tạo application
     application = (
         Application
         .builder()
@@ -416,21 +539,21 @@ def main():
     application.add_handler(
         CommandHandler(
             "start",
-            start
+            start,
         )
     )
 
     application.add_handler(
         CommandHandler(
             "help",
-            help_command
+            help_command,
         )
     )
 
     application.add_handler(
         CommandHandler(
             "search",
-            search_command
+            search_command,
         )
     )
 
@@ -439,28 +562,33 @@ def main():
         MessageHandler(
             filters.TEXT
             & ~filters.COMMAND,
-            message_handler
+            message_handler,
         )
     )
 
-    # Error
+    # Error handler
     application.add_error_handler(
-        error_handler
+        error_handler,
     )
 
     print(
         "✅ BOT ĐÃ SẴN SÀNG!"
     )
 
-    # Telegram long polling
+    print(
+        "📡 Đang chờ tin nhắn Telegram..."
+    )
+
+    # Long polling
     application.run_polling(
-        drop_pending_updates=True
+        drop_pending_updates=True,
     )
 
 
 # =========================================================
-# START
+# ▶️ RUN
 # =========================================================
 
 if __name__ == "__main__":
     main()
+```
