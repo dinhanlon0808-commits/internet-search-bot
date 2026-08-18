@@ -1,466 +1,466 @@
-# bot_railway_no_port.py
-# Bot Telegram chạy trên Railway.app KHÔNG CẦN PORT
-# Chỉ dùng Polling mode - không cần webhook
-# Railway tự quản lý process 24/7
-
-import os
-import asyncio
+import requests
 import logging
-import sys
-import urllib.parse
-from datetime import datetime
-from typing import List, Dict
-import aiohttp
-from bs4 import BeautifulSoup
-from fake_useragent import UserAgent
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ApplicationBuilder
-from tavily import TavilyClient
+import html
+import time
 
-# ===== LOGGING =====
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
+
+# =========================================================
+# 🔑 API CONFIG
+# =========================================================
+
+BOT_TOKEN = "8747823218:AAE5clUs5rSf-bF_MTQkxlnFiWk3LUUS8AY"
+
+TAVILY_API_KEY = "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"
+
+# =========================================================
+# ⚙️ SETTINGS
+# =========================================================
+
+TAVILY_URL = "https://api.tavily.com/search"
+
+MAX_RESULTS = 10
+
+
+# =========================================================
+# LOG
+# =========================================================
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
 logger = logging.getLogger(__name__)
 
-# ===== CẤU HÌNH =====
-# KHÔNG CẦN PORT - chỉ cần 2 biến này
-BOT_TOKEN = os.environ.get("8747823218:AAE5clUs5rSf-bF_MTQkxlnFiWk3LUUS8AY")
-TAVILY_API_KEY = os.environ.get("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")
 
-# Cấu hình tìm kiếm
-MAX_RESULTS = 50
-TIMEOUT = 20
+# =========================================================
+# 🌐 TAVILY SEARCH
+# =========================================================
 
-# Khởi tạo
-ua = UserAgent()
-tavily_client = None
-if TAVILY_API_KEY and TAVILY_API_KEY != "THAY_BANG_TAVILY_API_KEY":
-    tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    logger.info("✅ Tavily API initialized")
+def search_internet(query):
 
-# Thống kê
-bot_start_time = datetime.now()
-total_searches = 0
-total_results = 0
+    payload = {
+        "api_key": TAVILY_API_KEY,
+        "query": query,
+        "search_depth": "advanced",
+        "topic": "general",
+        "max_results": MAX_RESULTS,
+        "include_answer": False,
+        "include_raw_content": False,
+        "include_images": False
+    }
 
-class NoPortBot:
-    def __init__(self):
-        self.application = None
-        self.is_running = False
-    
-    async def initialize(self):
-        try:
-            builder = ApplicationBuilder()
-            builder.token(BOT_TOKEN)
-            builder.concurrent_updates(True)
-            builder.connect_timeout(30)
-            builder.read_timeout(30)
-            builder.write_timeout(30)
-            
-            self.application = builder.build()
-            self.register_handlers()
-            logger.info("✅ Bot initialized - No Port Mode")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Init error: {e}")
-            return False
-    
-    def register_handlers(self):
-        self.application.add_handler(CommandHandler("start", self.start_command))
-        self.application.add_handler(CommandHandler("search", self.search_command))
-        self.application.add_handler(CommandHandler("tim", self.search_command))
-        self.application.add_handler(CommandHandler("tavily", self.tavily_search_command))
-        self.application.add_handler(CommandHandler("status", self.status_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("ping", self.ping_command))
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        self.application.add_error_handler(self.error_handler)
-    
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        logger.error(f"❌ Error: {context.error}")
-        if update and update.effective_message:
-            try:
-                await update.effective_message.reply_text("⚠️ Lỗi. Bot tự khôi phục.")
-            except:
-                pass
-    
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = requests.post(
+        TAVILY_URL,
+        json=payload,
+        timeout=60
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+# =========================================================
+# 📄 FORMAT RESULTS
+# =========================================================
+
+def format_results(query, data):
+
+    results = data.get("results", [])
+
+    if not results:
+        return (
+            "🔎 <b>KẾT QUẢ TÌM KIẾM</b>\n\n"
+            f"🔍 Từ khóa: <code>{html.escape(query)}</code>\n\n"
+            "❌ Không tìm thấy kết quả."
+        ), None
+
+    text = (
+        "🔎 <b>KẾT QUẢ TÌM KIẾM INTERNET</b>\n\n"
+        f"🔍 <b>Từ khóa:</b> {html.escape(query)}\n"
+        f"📊 <b>Số kết quả:</b> {len(results)}\n\n"
+    )
+
+    buttons = []
+
+    for i, item in enumerate(results, 1):
+
+        title = item.get(
+            "title",
+            "Không có tiêu đề"
+        )
+
+        url = item.get(
+            "url",
+            ""
+        )
+
+        content = item.get(
+            "content",
+            ""
+        )
+
+        # Làm sạch nội dung
+        content = content.replace(
+            "\n",
+            " "
+        ).strip()
+
+        # Giới hạn mô tả
+        if len(content) > 400:
+            content = content[:400] + "..."
+
+        text += (
+            f"<b>{i}. {html.escape(title)}</b>\n"
+            f"{html.escape(content)}\n\n"
+        )
+
+        if url:
+
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🌐 MỞ KẾT QUẢ {i}",
+                    url=url
+                )
+            ])
+
+    # Telegram giới hạn độ dài tin nhắn
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n..."
+
+    keyboard = None
+
+    if buttons:
+        keyboard = InlineKeyboardMarkup(
+            buttons
+        )
+
+    return text, keyboard
+
+
+# =========================================================
+# 🚀 START
+# =========================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    message = """
+🤖 <b>INTERNET SEARCH BOT</b>
+
+━━━━━━━━━━━━━━━━━━
+
+🔎 Tôi có thể tìm kiếm thông tin trên Internet và gửi các đường link liên quan cho bạn.
+
+<b>Cách sử dụng:</b>
+
+/search laptop gaming
+
+/search việc làm online
+
+/search giá vàng hôm nay
+
+Hoặc chỉ cần gửi câu hỏi trực tiếp.
+
+━━━━━━━━━━━━━━━━━━
+
+🌐 <b>Search Engine:</b> Tavily
+⚡ <b>Bot:</b> Telegram
+"""
+
+    await update.message.reply_text(
+        message,
+        parse_mode=ParseMode.HTML
+    )
+
+
+# =========================================================
+# ❓ HELP
+# =========================================================
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    message = """
+📚 <b>HƯỚNG DẪN</b>
+
+🔎 Tìm kiếm:
+
+<code>/search từ khóa</code>
+
+Ví dụ:
+
+<code>/search điện thoại Samsung mới nhất</code>
+
+<code>/search laptop gaming giá rẻ</code>
+
+<code>/search việc làm online tại nhà</code>
+
+Hoặc gửi câu hỏi trực tiếp cho bot.
+"""
+
+    await update.message.reply_text(
+        message,
+        parse_mode=ParseMode.HTML
+    )
+
+
+# =========================================================
+# 🔎 /SEARCH
+# =========================================================
+
+async def search_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not context.args:
+
         await update.message.reply_text(
-            "🤖 BOT TÌM KIẾM 24/7 - RAILWAY.APP\n"
-            "✅ KHÔNG CẦN PORT - POLLING MODE\n\n"
-            "🔍 Tìm kiếm: Tavily AI + Google + Bing + DuckDuckGo + Yahoo + Brave\n\n"
-            "📖 Lệnh:\n"
-            "/search <từ khóa> - Tìm kiếm tổng hợp\n"
-            "/tavily <từ khóa> - Tìm kiếm Tavily AI\n"
-            "/status - Trạng thái\n"
-            "/help - Trợ giúp"
+            "❌ Bạn chưa nhập từ khóa.\n\n"
+            "Ví dụ:\n"
+            "<code>/search laptop gaming</code>",
+            parse_mode=ParseMode.HTML
         )
-    
-    async def ping_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uptime = datetime.now() - bot_start_time
-        hours, remainder = divmod(uptime.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        await update.message.reply_text(
-            f"🏓 PONG!\n"
-            f"⏰ Uptime: {uptime.days}d {hours}h {minutes}m {seconds}s\n"
-            f"🔍 Tìm kiếm: {total_searches}\n"
-            f"🔗 Kết quả: {total_results}\n"
-            f"📡 Mode: Polling (No Port)"
+
+        return
+
+    query = " ".join(
+        context.args
+    ).strip()
+
+    await do_search(
+        update,
+        query
+    )
+
+
+# =========================================================
+# 💬 DIRECT MESSAGE
+# =========================================================
+
+async def message_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not update.message:
+        return
+
+    if not update.message.text:
+        return
+
+    query = update.message.text.strip()
+
+    if not query:
+        return
+
+    await do_search(
+        update,
+        query
+    )
+
+
+# =========================================================
+# 🔎 SEARCH PROCESS
+# =========================================================
+
+async def do_search(
+    update: Update,
+    query
+):
+
+    loading = await update.message.reply_text(
+        "🔎 <b>Đang tìm kiếm Internet...</b>\n\n"
+        "⏳ Đang thu thập kết quả...",
+        parse_mode=ParseMode.HTML
+    )
+
+    try:
+
+        logger.info(
+            "Searching: %s",
+            query
         )
-    
-    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uptime = datetime.now() - bot_start_time
-        tavily_status = "✅ Active" if tavily_client else "❌ Not configured"
-        await update.message.reply_text(
-            f"📊 STATUS\n"
-            f"🔄 Uptime: {uptime}\n"
-            f"🔍 Tavily: {tavily_status}\n"
-            f"📡 Mode: Polling - No Port Required\n"
-            f"🔗 Total results: {total_results}"
+
+        data = search_internet(
+            query
         )
-    
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(
-            "📖 HELP\n\n"
-            "/search <từ khóa> - Search all sources\n"
-            "/tavily <từ khóa> - Tavily AI search\n"
-            "/tim <từ khóa> - Alias\n"
-            "/status - Status\n"
-            "/ping - Check alive\n\n"
-            "🤖 Gửi text trực tiếp để tìm kiếm"
+
+        text, keyboard = format_results(
+            query,
+            data
         )
-    
-    async def search_tavily(self, query: str, max_results: int = 20) -> List[Dict]:
-        results = []
-        if not tavily_client:
-            return results
-        
-        try:
-            response = tavily_client.search(
-                query=query,
-                search_depth="advanced",
-                max_results=max_results,
-                include_answer=True,
-                include_raw_content=False,
-                include_images=False
-            )
-            
-            if response.get("answer"):
-                results.append({
-                    "url": "Tavily AI Answer",
-                    "title": f"🤖 AI Answer: {response['answer'][:500]}",
-                    "engine": "Tavily AI",
-                    "content": response["answer"]
-                })
-            
-            for result in response.get("results", []):
-                results.append({
-                    "url": result.get("url", ""),
-                    "title": result.get("title", "")[:200],
-                    "engine": "Tavily",
-                    "content": result.get("content", "")[:300],
-                    "score": result.get("score", 0)
-                })
-            
-            if response.get("follow_up_questions"):
-                for question in response["follow_up_questions"][:3]:
-                    results.append({
-                        "url": "Follow-up",
-                        "title": f"❓ {question}",
-                        "engine": "Tavily AI",
-                        "content": ""
-                    })
-                    
-        except Exception as e:
-            logger.error(f"Tavily error: {e}")
-        
-        return results
-    
-    async def search_google(self, query: str) -> List[Dict]:
-        results = []
-        url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&num={MAX_RESULTS}"
-        try:
-            async with aiohttp.ClientSession(headers={"User-Agent": ua.random}) as session:
-                async with session.get(url, timeout=TIMEOUT) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        soup = BeautifulSoup(html, 'lxml')
-                        for item in soup.select('div.g')[:MAX_RESULTS]:
-                            link = item.select_one('a')
-                            title_elem = item.select_one('h3')
-                            if link and link.get('href') and link['href'].startswith('http'):
-                                results.append({
-                                    "url": link['href'],
-                                    "title": title_elem.get_text()[:200] if title_elem else link['href'][:200],
-                                    "engine": "Google"
-                                })
-        except Exception as e:
-            logger.error(f"Google error: {e}")
-        return results
-    
-    async def search_bing(self, query: str) -> List[Dict]:
-        results = []
-        url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={MAX_RESULTS}"
-        try:
-            async with aiohttp.ClientSession(headers={"User-Agent": ua.random}) as session:
-                async with session.get(url, timeout=TIMEOUT) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        soup = BeautifulSoup(html, 'lxml')
-                        for item in soup.select('li.b_algo')[:MAX_RESULTS]:
-                            link = item.select_one('a')
-                            if link and link.get('href'):
-                                results.append({
-                                    "url": link['href'],
-                                    "title": link.get_text()[:200],
-                                    "engine": "Bing"
-                                })
-        except Exception as e:
-            logger.error(f"Bing error: {e}")
-        return results
-    
-    async def search_duckduckgo(self, query: str) -> List[Dict]:
-        results = []
-        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        try:
-            async with aiohttp.ClientSession(headers={"User-Agent": ua.random}) as session:
-                async with session.get(url, timeout=TIMEOUT) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        soup = BeautifulSoup(html, 'lxml')
-                        for item in soup.select('div.result')[:MAX_RESULTS]:
-                            link = item.select_one('a.result__a')
-                            if link and link.get('href'):
-                                href = link['href']
-                                if 'uddg=' in href:
-                                    actual_url = urllib.parse.unquote(href.split('uddg=')[1].split('&')[0])
-                                else:
-                                    actual_url = href
-                                results.append({
-                                    "url": actual_url,
-                                    "title": link.get_text()[:200],
-                                    "engine": "DuckDuckGo"
-                                })
-        except Exception as e:
-            logger.error(f"DuckDuckGo error: {e}")
-        return results
-    
-    async def search_yahoo(self, query: str) -> List[Dict]:
-        results = []
-        url = f"https://search.yahoo.com/search?p={urllib.parse.quote(query)}&n={MAX_RESULTS}"
-        try:
-            async with aiohttp.ClientSession(headers={"User-Agent": ua.random}) as session:
-                async with session.get(url, timeout=TIMEOUT) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        soup = BeautifulSoup(html, 'lxml')
-                        for item in soup.select('div.dd.algo')[:MAX_RESULTS]:
-                            link = item.select_one('a')
-                            if link and link.get('href'):
-                                results.append({
-                                    "url": link['href'],
-                                    "title": link.get_text()[:200],
-                                    "engine": "Yahoo"
-                                })
-        except Exception as e:
-            logger.error(f"Yahoo error: {e}")
-        return results
-    
-    async def search_brave(self, query: str) -> List[Dict]:
-        results = []
-        url = f"https://search.brave.com/search?q={urllib.parse.quote(query)}&source=web"
-        try:
-            async with aiohttp.ClientSession(headers={"User-Agent": ua.random}) as session:
-                async with session.get(url, timeout=TIMEOUT) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        soup = BeautifulSoup(html, 'lxml')
-                        for item in soup.select('div.snippet')[:MAX_RESULTS]:
-                            link = item.select_one('a')
-                            if link and link.get('href'):
-                                results.append({
-                                    "url": link['href'],
-                                    "title": link.get_text()[:200],
-                                    "engine": "Brave"
-                                })
-        except Exception as e:
-            logger.error(f"Brave error: {e}")
-        return results
-    
-    async def search_all(self, query: str) -> List[Dict]:
-        all_results = []
-        tasks = [
-            self.search_tavily(query),
-            self.search_google(query),
-            self.search_bing(query),
-            self.search_duckduckgo(query),
-            self.search_yahoo(query),
-            self.search_brave(query),
-        ]
-        
-        results_list = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for results in results_list:
-            if isinstance(results, list):
-                all_results.extend(results)
-        
-        seen_urls = set()
-        unique_results = []
-        for result in all_results:
-            url = result.get('url', '').rstrip('/')
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_results.append(result)
-        
-        return unique_results
-    
-    async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        global total_searches, total_results
-        query = ' '.join(context.args)
-        
-        if not query:
-            await update.message.reply_text("⚠️ Nhập từ khóa: /search <từ khóa>")
-            return
-        
-        total_searches += 1
-        status_msg = await update.message.reply_text(f"🔍 Đang tìm: \"{query}\"...")
-        
-        try:
-            results = await self.search_all(query)
-            total_results += len(results)
-            
-            if not results:
-                await status_msg.edit_text("❌ Không tìm thấy kết quả")
-                return
-            
-            message = f"📊 {len(results)} KẾT QUẢ CHO: \"{query}\"\n" + "=" * 30 + "\n\n"
-            messages = []
-            current = message
-            
-            for i, result in enumerate(results, 1):
-                entry = f"{i}. 🔗 {result['title'][:150]}\n"
-                entry += f"   📍 {result['url']}\n"
-                entry += f"   🔎 {result['engine']}\n"
-                if result.get('content'):
-                    entry += f"   📄 {result['content'][:200]}\n"
-                if result.get('score'):
-                    entry += f"   ⭐ {result['score']:.2f}\n"
-                entry += "\n"
-                
-                if len(current) + len(entry) > 4000:
-                    messages.append(current)
-                    current = entry
-                else:
-                    current += entry
-            
-            if current:
-                messages.append(current)
-            
-            await status_msg.edit_text("✅ Hoàn tất!")
-            
-            for msg in messages:
-                await update.message.reply_text(msg)
-                await asyncio.sleep(0.1)
-            
-            await status_msg.delete()
-            
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            await status_msg.edit_text("⚠️ Lỗi. Thử lại.")
-    
-    async def tavily_search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = ' '.join(context.args)
-        if not query:
-            await update.message.reply_text("⚠️ /tavily <từ khóa>")
-            return
-        
-        status_msg = await update.message.reply_text(f"🤖 Tavily AI: \"{query}\"...")
-        
-        try:
-            results = await self.search_tavily(query, max_results=30)
-            
-            if not results:
-                await status_msg.edit_text("❌ Không có kết quả")
-                return
-            
-            message = f"🤖 TAVILY: {len(results)} KẾT QUẢ\n" + "=" * 30 + "\n\n"
-            messages = []
-            current = message
-            
-            for i, result in enumerate(results, 1):
-                entry = f"{i}. {result['title'][:200]}\n"
-                if result['url'] not in ["Tavily AI Answer", "Follow-up"]:
-                    entry += f"   📍 {result['url']}\n"
-                if result.get('content'):
-                    entry += f"   📄 {result['content'][:300]}\n"
-                if result.get('score'):
-                    entry += f"   ⭐ {result['score']:.2f}\n"
-                entry += "\n"
-                
-                if len(current) + len(entry) > 4000:
-                    messages.append(current)
-                    current = entry
-                else:
-                    current += entry
-            
-            if current:
-                messages.append(current)
-            
-            await status_msg.edit_text("✅ Tavily xong!")
-            
-            for msg in messages:
-                await update.message.reply_text(msg)
-                await asyncio.sleep(0.1)
-            
-            await status_msg.delete()
-            
-        except Exception as e:
-            logger.error(f"Tavily command error: {e}")
-            await status_msg.edit_text("⚠️ Lỗi Tavily")
-    
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        text = update.message.text
-        if text and len(text) > 2:
-            context.args = text.split()
-            await self.search_command(update, context)
-    
-    async def run(self):
-        self.is_running = True
-        logger.info("🚀 Bot starting - No Port Mode...")
-        
-        if not await self.initialize():
-            logger.error("❌ Cannot initialize")
-            return
-        
-        # Chạy polling - KHÔNG CẦN PORT
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling(
-            drop_pending_updates=True,
-            read_timeout=30,
-            write_timeout=30,
-            connect_timeout=30,
-            pool_timeout=30,
-            allowed_updates=Update.ALL_TYPES
+
+        await loading.edit_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
         )
-        logger.info("✅ Bot running - Polling mode - No Port Required")
-        
-        # Giữ bot chạy
-        while self.is_running:
-            await asyncio.sleep(1)
-        
-        # Cleanup
-        await self.application.stop()
-        await self.application.shutdown()
+
+    except requests.exceptions.Timeout:
+
+        await loading.edit_text(
+            "⏰ API tìm kiếm phản hồi quá lâu.\n\n"
+            "Hãy thử lại sau."
+        )
+
+    except requests.exceptions.HTTPError as e:
+
+        logger.error(
+            "Tavily HTTP error: %s",
+            e
+        )
+
+        await loading.edit_text(
+            "❌ <b>Tavily API bị lỗi.</b>\n\n"
+            "Kiểm tra lại API Key của bạn.",
+            parse_mode=ParseMode.HTML
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            "Search error"
+        )
+
+        await loading.edit_text(
+            "❌ <b>Bot gặp lỗi.</b>\n\n"
+            f"<code>{html.escape(str(e))}</code>",
+            parse_mode=ParseMode.HTML
+        )
+
+
+# =========================================================
+# ❌ ERROR HANDLER
+# =========================================================
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    logger.error(
+        "Telegram error: %s",
+        context.error
+    )
+
+
+# =========================================================
+# 🚀 MAIN
+# =========================================================
+
+def main():
+
+    # Kiểm tra API
+    if (
+        BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN"
+        or not BOT_TOKEN.strip()
+    ):
+        raise RuntimeError(
+            "❌ Chưa nhập TELEGRAM BOT TOKEN"
+        )
+
+    if (
+        TAVILY_API_KEY == "YOUR_TAVILY_API_KEY"
+        or not TAVILY_API_KEY.strip()
+    ):
+        raise RuntimeError(
+            "❌ Chưa nhập TAVILY API KEY"
+        )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "🤖 INTERNET SEARCH TELEGRAM BOT"
+    )
+
+    print(
+        "🌐 Tavily Search"
+    )
+
+    print(
+        "⚡ Bot đang khởi động..."
+    )
+
+    print(
+        "========================================"
+    )
+
+    # Tạo application
+    application = (
+        Application
+        .builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    # Commands
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "help",
+            help_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "search",
+            search_command
+        )
+    )
+
+    # Tin nhắn thường
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            message_handler
+        )
+    )
+
+    # Error
+    application.add_error_handler(
+        error_handler
+    )
+
+    print(
+        "✅ BOT ĐÃ SẴN SÀNG!"
+    )
+
+    # Telegram long polling
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+# =========================================================
+# START
+# =========================================================
 
 if __name__ == "__main__":
-    bot = NoPortBot()
-    try:
-        asyncio.run(bot.run())
-    except KeyboardInterrupt:
-        logger.info("🛑 Bot stopped")
-    except Exception as e:
-        logger.error(f"❌ Fatal: {e}")
+    main()
