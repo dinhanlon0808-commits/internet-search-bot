@@ -19,7 +19,7 @@ from telegram.ext import (
 
 BOT_TOKEN = "8747823218:AAE5clUs5rSf-bF_MTQkxlnFiWk3LUUS8AY"
 
-TAVILY_API_KEY = "b78786fefbf0a0276f335ff56a2788c97293d01fd8a9371c666bc3f13dc41de1"
+TAVILY_API_KEY = "0c1395317ffa5ae9665f09caab089985a66ec1a599c4811f7b55f5429453af95"
 
 # =========================================================
 # ⚙️ SETTINGS
